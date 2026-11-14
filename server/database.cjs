@@ -6,6 +6,7 @@ const schemaPath = path.resolve(__dirname, '../supabase/schema.sql');
 let pool;
 let sqlite;
 let provider;
+let initialization;
 
 const sqliteSchema = `
   CREATE TABLE IF NOT EXISTS admins (
@@ -42,13 +43,30 @@ function assertInitialized() {
   if (!provider) throw new Error('Database belum berhasil diinisialisasi.');
 }
 
-async function initialize() {
+function initialize() {
+  if (initialization) return initialization;
+  initialization = initializeProvider().catch(async (error) => {
+    try {
+      await close();
+    } catch (closeError) {
+      console.error('Gagal membersihkan koneksi database setelah inisialisasi gagal:', closeError);
+    }
+    pool = undefined;
+    sqlite = undefined;
+    provider = undefined;
+    initialization = null;
+    throw error;
+  });
+  return initialization;
+}
+
+async function initializeProvider() {
   if (process.env.DATABASE_URL) {
     const { Pool } = require('pg');
     provider = 'postgres';
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: Number(process.env.DB_POOL_MAX || 5),
+      max: Number(process.env.DB_POOL_MAX || (process.env.VERCEL ? 1 : 5)),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
       application_name: 'portal-k3',
@@ -88,11 +106,16 @@ async function createAdminIfMissing(email, password) {
   const passwordHash = await bcrypt.hash(password, 12);
   assertInitialized();
   if (provider === 'postgres') {
-    await pool.query('INSERT INTO public.admins (email, password_hash) VALUES ($1, $2)', [email, passwordHash]);
+    const result = await pool.query(
+      'INSERT INTO public.admins (email, password_hash) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING',
+      [email, passwordHash],
+    );
+    if (result.rowCount) console.info('Admin awal berhasil dibuat.');
   } else {
-    sqlite.prepare('INSERT INTO admins (email, password_hash) VALUES (?, ?)').run(email, passwordHash);
+    const result = sqlite.prepare('INSERT OR IGNORE INTO admins (email, password_hash) VALUES (?, ?)')
+      .run(email, passwordHash);
+    if (result.changes) console.info('Admin awal berhasil dibuat.');
   }
-  console.info('Admin awal berhasil dibuat.');
 }
 
 async function findAdminByEmail(email) {

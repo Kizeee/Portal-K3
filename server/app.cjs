@@ -1,0 +1,257 @@
+require('dotenv').config();
+
+const crypto = require('node:crypto');
+const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cookie = require('cookie');
+const db = require('./database.cjs');
+
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET wajib dikonfigurasi untuk menjalankan aplikasi di production.');
+}
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const COOKIE_NAME = 'portal_k3_admin';
+const STATUSES = ['Baru', 'Ditinjau', 'Ditindaklanjuti', 'Selesai'];
+const CATEGORIES = [
+  'Kondisi tidak aman',
+  'Tindakan tidak aman',
+  'Near miss (nyaris celaka)',
+  'Insiden / kecelakaan',
+  'Kebakaran / keadaan darurat',
+  'Laboratorium / bahan kimia',
+  'Kebersihan / kesehatan lingkungan',
+  'Lainnya',
+];
+
+const app = express();
+if (process.env.VERCEL) app.set('trust proxy', 1);
+
+app.disable('x-powered-by');
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      connectSrc: ["'self'", 'https://*.supabase.co', 'wss://*.supabase.co'],
+      frameSrc: ["'self'", 'https://www.youtube-nocookie.com'],
+    },
+  },
+}));
+app.use(express.json({ limit: '20kb' }));
+
+let databaseInitialization;
+app.use((req, res, next) => {
+  if (!databaseInitialization) {
+    databaseInitialization = db.initialize().catch((error) => {
+      databaseInitialization = null;
+      throw error;
+    });
+  }
+  databaseInitialization.then(() => next(), next);
+});
+
+function hashTrackingCode(code) {
+  return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+function getAdminFromToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch {
+    return null;
+  }
+}
+
+function adminAuth(req, res, next) {
+  const token = req.cookies?.[COOKIE_NAME] || cookie.parse(req.headers.cookie || '')[COOKIE_NAME];
+  const admin = token ? getAdminFromToken(token) : null;
+  if (!admin || admin.role !== 'admin') {
+    return res.status(401).json({ error: 'Silakan masuk sebagai admin terlebih dahulu.' });
+  }
+  req.admin = admin;
+  next();
+}
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Terlalu banyak percobaan masuk. Coba lagi dalam 15 menit.' },
+});
+
+const reportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Batas pengiriman laporan tercapai. Coba lagi beberapa saat.' },
+});
+
+let realtimeConfigurationWarningLogged = false;
+async function publishRealtimeUpdate() {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const apiKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !apiKey) {
+    if (!realtimeConfigurationWarningLogged) {
+      console.warn('Supabase Realtime belum dikonfigurasi; klien akan memakai pembaruan berkala.');
+      realtimeConfigurationWarningLogged = true;
+    }
+    return false;
+  }
+
+  try {
+    const response = await fetch(
+      `${supabaseUrl.replace(/\/+$/, '')}/realtime/v1/api/broadcast/portal-updates/events/reports_changed`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Supabase Realtime merespons HTTP ${response.status}.`);
+    }
+    return true;
+  } catch (error) {
+    console.error('Gagal mengirim sinyal pembaruan Supabase Realtime:', error);
+    return false;
+  }
+}
+
+app.post('/api/admin/login', loginLimiter, async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const admin = await db.findAdminByEmail(email);
+  if (!admin || !(await bcrypt.compare(password, admin.password_hash))) {
+    return res.status(401).json({ error: 'Email atau kata sandi tidak sesuai.' });
+  }
+
+  const token = jwt.sign({ sub: admin.id, email: admin.email, role: 'admin' }, JWT_SECRET, { expiresIn: '8h' });
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: 8 * 60 * 60 * 1000,
+  });
+  res.json({ admin: { email: admin.email } });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  });
+  res.status(204).end();
+});
+
+app.get('/api/admin/session', adminAuth, (req, res) => {
+  res.json({ admin: { email: req.admin.email } });
+});
+
+app.post('/api/reports', reportLimiter, async (req, res) => {
+  const body = req.body || {};
+  const values = {
+    reporter: typeof body.reporter === 'string' ? body.reporter.trim() : '',
+    category: typeof body.category === 'string' ? body.category : '',
+    incidentDate: typeof body.incidentDate === 'string' ? body.incidentDate : '',
+    location: typeof body.location === 'string' ? body.location.trim() : '',
+    description: typeof body.description === 'string' ? body.description.trim() : '',
+    initialAction: typeof body.initialAction === 'string' ? body.initialAction.trim() : '',
+  };
+  const incidentDate = new Date(`${values.incidentDate}T00:00:00Z`);
+  const today = new Date();
+  today.setUTCHours(23, 59, 59, 999);
+
+  if (!CATEGORIES.includes(values.category)) {
+    return res.status(400).json({ error: 'Pilih kategori laporan yang tersedia.' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.incidentDate) || Number.isNaN(incidentDate.getTime()) || incidentDate > today) {
+    return res.status(400).json({ error: 'Tanggal kejadian tidak valid.' });
+  }
+  if (values.reporter.length > 100 || values.location.length < 3 || values.location.length > 180 ||
+      values.description.length < 10 || values.description.length > 2000 || values.initialAction.length > 1000) {
+    return res.status(400).json({ error: 'Periksa kembali panjang dan kelengkapan data laporan.' });
+  }
+
+  const trackingCode = crypto.randomBytes(24).toString('base64url').toUpperCase();
+  const trackingHash = hashTrackingCode(trackingCode);
+  const report = await db.createReport(values, trackingHash);
+  const realtimeNotified = await publishRealtimeUpdate();
+  res.status(201).json({
+    trackingCode,
+    report: { status: report.status, createdAt: report.created_at },
+    realtimeNotified,
+  });
+});
+
+function publicAdminReport(report) {
+  return {
+    id: report.id,
+    reporter: report.reporter,
+    category: report.category,
+    incidentDate: report.incident_date,
+    location: report.location,
+    description: report.description,
+    initialAction: report.initial_action,
+    status: report.status,
+    createdAt: report.created_at,
+    updatedAt: report.updated_at,
+  };
+}
+
+app.get('/api/reports/track/:code', async (req, res) => {
+  const code = typeof req.params.code === 'string' ? req.params.code.trim().toUpperCase() : '';
+  if (!/^[A-Z0-9_-]{30,40}$/.test(code)) {
+    return res.status(404).json({ error: 'Kode pelacakan tidak ditemukan.' });
+  }
+  const report = await db.findReportByTrackingHash(hashTrackingCode(code));
+  if (!report) {
+    return res.status(404).json({ error: 'Kode pelacakan tidak ditemukan.' });
+  }
+  const updates = await db.listStatusUpdates(report.id);
+  res.json({
+    status: report.status,
+    createdAt: report.created_at,
+    updatedAt: report.updated_at,
+    updates,
+  });
+});
+
+app.get('/api/admin/reports', adminAuth, async (req, res) => {
+  const reports = await db.listReports();
+  res.json({ reports: reports.map(publicAdminReport) });
+});
+
+app.patch('/api/admin/reports/:id/status', adminAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const status = typeof req.body?.status === 'string' ? req.body.status : '';
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+  if (!Number.isSafeInteger(id) || id < 1 || !STATUSES.includes(status) || note.length > 500) {
+    return res.status(400).json({ error: 'Status atau catatan tindak lanjut tidak valid.' });
+  }
+  const report = await db.findReportById(id);
+  if (!report) {
+    return res.status(404).json({ error: 'Laporan tidak ditemukan.' });
+  }
+
+  const updatedAt = new Date().toISOString();
+  const updatedReport = await db.updateReportStatus(id, status, note, updatedAt);
+  const realtimeNotified = await publishRealtimeUpdate();
+  res.json({ report: publicAdminReport(updatedReport), realtimeNotified });
+});
+
+app.use((error, req, res, next) => {
+  console.error('Kesalahan API:', error);
+  if (res.headersSent) return next(error);
+  res.status(500).json({ error: 'Terjadi kesalahan pada server. Silakan coba kembali.' });
+});
+
+module.exports = app;

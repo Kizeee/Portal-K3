@@ -1,6 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { io } from 'socket.io-client';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+const realtimeClient = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 const isAdminPage = window.location.pathname.startsWith('/admin');
 const categories = [
@@ -189,7 +193,8 @@ const savingReportId = ref(null);
 const adminError = ref('');
 const reportEdits = ref({});
 
-let socket;
+let realtimeChannel;
+let pollingTimer;
 let notificationTimer;
 
 const filteredArticles = computed(() => articles.filter((article) => {
@@ -260,36 +265,35 @@ function showNotification(message) {
   }, 5000);
 }
 
-function connectSocket() {
-  socket = io({ transports: ['websocket', 'polling'] });
-  socket.on('connect', () => {
-    if (trackedCode.value) {
-      socket.emit('report:subscribe', { trackingCode: trackedCode.value });
-      loadTrackedReport();
-    }
-    if (isAdminPage && adminEmail.value) loadReports();
-  });
-  socket.on('report:status', (update) => {
-    if (!trackedCode.value) return;
-    loadTrackedReport();
-    showNotification(`Status laporan Anda berubah: ${update.status}.`);
-  });
-  socket.on('report:new', ({ report }) => {
-    if (!isAdminPage || !adminEmail.value) return;
-    const index = reports.value.findIndex((item) => item.id === report.id);
-    if (index >= 0) reports.value[index] = report;
-    else reports.value.unshift(report);
-    reportEdits.value[report.id] = { status: report.status, note: '' };
-    showNotification('Laporan baru diterima.');
-  });
-  socket.on('report:updated', ({ report }) => {
-    if (!isAdminPage || !adminEmail.value) return;
-    const index = reports.value.findIndex((item) => item.id === report.id);
-    if (index >= 0) reports.value[index] = report;
-  });
-  socket.on('connect_error', () => {
-    if (isAdminPage && adminEmail.value) showNotification('Koneksi real-time terputus. Memuat data secara berkala.');
-  });
+function refreshVisibleReports() {
+  if (isAdminPage && adminEmail.value) void loadReports(true);
+  if (trackedCode.value) void loadTrackedReport(false);
+}
+
+function startPolling() {
+  if (pollingTimer) return;
+  pollingTimer = setInterval(refreshVisibleReports, 30000);
+}
+
+function connectRealtime() {
+  startPolling();
+  if (!realtimeClient) {
+    return;
+  }
+
+  realtimeChannel = realtimeClient
+    .channel('portal-updates')
+    .on('broadcast', { event: 'reports_changed' }, () => {
+      refreshVisibleReports();
+      if (isAdminPage && adminEmail.value) showNotification('Ada pembaruan laporan.');
+    })
+    .subscribe((status) => {
+    if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+        if (isAdminPage && adminEmail.value) {
+          showNotification('Koneksi real-time terputus. Data diperbarui secara berkala.');
+        }
+      }
+    });
 }
 
 async function submitReport() {
@@ -302,8 +306,12 @@ async function submitReport() {
     });
     submittedCode.value = result.trackingCode;
     trackCodeInput.value = result.trackingCode;
+    if (!result.realtimeNotified) {
+      startPolling();
+      showNotification('Laporan tersimpan, tetapi pembaruan langsung tidak tersedia. Data akan diperbarui berkala.');
+    }
     reportForm.value = { reporter: '', category: '', incidentDate: localDate(), location: '', description: '', initialAction: '' };
-    showNotification('Laporan berhasil dikirim dan tersimpan.');
+    if (result.realtimeNotified) showNotification('Laporan berhasil dikirim dan tersimpan.');
     await trackReport();
     document.getElementById('pelacakan')?.scrollIntoView({ behavior: 'smooth' });
   } catch (error) {
@@ -325,7 +333,6 @@ async function trackReport() {
     const result = await request(`/api/reports/track/${encodeURIComponent(code)}`);
     trackedCode.value = code;
     trackedReport.value = result;
-    socket?.emit('report:subscribe', { trackingCode: code });
   } catch (error) {
     trackedCode.value = '';
     trackedReport.value = null;
@@ -338,7 +345,12 @@ async function trackReport() {
 async function loadTrackedReport(showError = true) {
   if (!trackedCode.value) return;
   try {
-    trackedReport.value = await request(`/api/reports/track/${encodeURIComponent(trackedCode.value)}`);
+    const previousStatus = trackedReport.value?.status;
+    const result = await request(`/api/reports/track/${encodeURIComponent(trackedCode.value)}`);
+    trackedReport.value = result;
+    if (previousStatus && result.status !== previousStatus) {
+      showNotification(`Status laporan Anda berubah: ${result.status}.`);
+    }
   } catch (error) {
     if (showError) trackingError.value = error.message;
   }
@@ -367,8 +379,6 @@ async function adminLogin() {
     adminEmail.value = result.admin.email;
     loginForm.value.password = '';
     await loadReports();
-    socket?.disconnect();
-    connectSocket();
   } catch (error) {
     loginError.value = error.message;
   } finally {
@@ -381,22 +391,31 @@ async function adminLogout() {
     await request('/api/admin/logout', { method: 'POST' });
     adminEmail.value = '';
     reports.value = [];
-    socket?.disconnect();
-    connectSocket();
   } catch (error) {
     showNotification(error.message);
   }
 }
 
-async function loadReports() {
+async function loadReports(preserveEdits = false) {
   adminError.value = '';
   try {
     const result = await request('/api/admin/reports');
+    const previousReports = reports.value;
+    const previousEdits = reportEdits.value;
     reports.value = result.reports;
-    reportEdits.value = Object.fromEntries(result.reports.map((report) => [
-      report.id,
-      { status: report.status, note: '' },
-    ]));
+    reportEdits.value = Object.fromEntries(result.reports.map((report) => {
+      const previousReport = previousReports.find((item) => item.id === report.id);
+      const previousEdit = previousEdits[report.id];
+      const hasUnsavedStatus = preserveEdits && previousReport && previousEdit &&
+        previousEdit.status !== previousReport.status;
+      return [
+        report.id,
+        {
+          status: hasUnsavedStatus ? previousEdit.status : report.status,
+          note: preserveEdits ? previousEdit?.note || '' : '',
+        },
+      ];
+    }));
   } catch (error) {
     adminError.value = error.message;
   }
@@ -413,7 +432,12 @@ async function updateReport(report) {
     const index = reports.value.findIndex((item) => item.id === report.id);
     if (index >= 0) reports.value[index] = result.report;
     reportEdits.value[report.id] = { status: result.report.status, note: '' };
-    showNotification('Status laporan berhasil diperbarui.');
+    if (result.realtimeNotified) {
+      showNotification('Status laporan berhasil diperbarui.');
+    } else {
+      startPolling();
+      showNotification('Status tersimpan, tetapi pembaruan langsung tidak tersedia. Data akan diperbarui berkala.');
+    }
   } catch (error) {
     showNotification(error.message);
   } finally {
@@ -427,12 +451,13 @@ function formatDate(value) {
 }
 
 onMounted(() => {
-  connectSocket();
+  connectRealtime();
   if (isAdminPage) loadAdminSession();
 });
 
 onBeforeUnmount(() => {
-  socket?.disconnect();
+  if (realtimeChannel) void realtimeClient?.removeChannel(realtimeChannel);
+  clearInterval(pollingTimer);
   clearTimeout(notificationTimer);
 });
 </script>
