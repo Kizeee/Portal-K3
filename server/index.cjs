@@ -9,7 +9,7 @@ const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookie = require('cookie');
-const Database = require('better-sqlite3');
+const db = require('./database.cjs');
 const { createServer } = require('node:http');
 const { Server } = require('socket.io');
 
@@ -31,63 +31,18 @@ const CATEGORIES = [
   'Lainnya',
 ];
 
-const databasePath = path.resolve(process.env.DATABASE_PATH || './data/portal-k3.sqlite');
-fs.mkdirSync(path.dirname(databasePath), { recursive: true });
-const db = new Database(databasePath);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS admins (
-    id INTEGER PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS reports (
-    id INTEGER PRIMARY KEY,
-    tracking_hash TEXT NOT NULL UNIQUE,
-    reporter TEXT NOT NULL DEFAULT '',
-    category TEXT NOT NULL,
-    incident_date TEXT NOT NULL,
-    location TEXT NOT NULL,
-    description TEXT NOT NULL,
-    initial_action TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'Baru',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS status_updates (
-    id INTEGER PRIMARY KEY,
-    report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
-    status TEXT NOT NULL,
-    note TEXT NOT NULL DEFAULT '',
-    changed_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS reports_created_at_idx ON reports(created_at DESC);
-  CREATE INDEX IF NOT EXISTS status_updates_report_id_idx ON status_updates(report_id, changed_at);
-`);
-
-if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
-  if (process.env.ADMIN_PASSWORD.length < 12) {
-    throw new Error('ADMIN_PASSWORD harus memiliki minimal 12 karakter.');
-  }
-  const email = process.env.ADMIN_EMAIL.trim().toLowerCase();
-  const existingAdmin = db.prepare('SELECT id FROM admins WHERE email = ?').get(email);
-  if (!existingAdmin) {
-    const passwordHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12);
-    db.prepare('INSERT INTO admins (email, password_hash) VALUES (?, ?)').run(email, passwordHash);
-    console.info(`Admin awal dibuat untuk ${email}.`);
-  }
-} else {
-  console.warn('Akun admin belum tersedia. Isi ADMIN_EMAIL dan ADMIN_PASSWORD di .env.');
-}
-
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
 
 app.disable('x-powered-by');
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      frameSrc: ["'self'", 'https://www.youtube-nocookie.com'],
+    },
+  },
+}));
 app.use(express.json({ limit: '20kb' }));
 
 function hashTrackingCode(code) {
@@ -128,11 +83,11 @@ const reportLimiter = rateLimit({
   message: { error: 'Batas pengiriman laporan tercapai. Coba lagi beberapa saat.' },
 });
 
-app.post('/api/admin/login', loginLimiter, (req, res) => {
+app.post('/api/admin/login', loginLimiter, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
-  const admin = db.prepare('SELECT id, email, password_hash FROM admins WHERE email = ?').get(email);
-  if (!admin || !bcrypt.compareSync(password, admin.password_hash)) {
+  const admin = await db.findAdminByEmail(email);
+  if (!admin || !(await bcrypt.compare(password, admin.password_hash))) {
     return res.status(401).json({ error: 'Email atau kata sandi tidak sesuai.' });
   }
 
@@ -161,7 +116,7 @@ app.get('/api/admin/session', adminAuth, (req, res) => {
   res.json({ admin: { email: req.admin.email } });
 });
 
-app.post('/api/reports', reportLimiter, (req, res) => {
+app.post('/api/reports', reportLimiter, async (req, res) => {
   const body = req.body || {};
   const values = {
     reporter: typeof body.reporter === 'string' ? body.reporter.trim() : '',
@@ -188,27 +143,7 @@ app.post('/api/reports', reportLimiter, (req, res) => {
 
   const trackingCode = crypto.randomBytes(24).toString('base64url').toUpperCase();
   const trackingHash = hashTrackingCode(trackingCode);
-  const createReport = db.transaction(() => {
-    const result = db.prepare(`
-      INSERT INTO reports
-        (tracking_hash, reporter, category, incident_date, location, description, initial_action)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      trackingHash,
-      values.reporter,
-      values.category,
-      values.incidentDate,
-      values.location,
-      values.description,
-      values.initialAction,
-    );
-    db.prepare('INSERT INTO status_updates (report_id, status, note) VALUES (?, ?, ?)')
-      .run(result.lastInsertRowid, 'Baru', 'Laporan diterima.');
-    return Number(result.lastInsertRowid);
-  });
-
-  const reportId = createReport();
-  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(reportId);
+  const report = await db.createReport(values, trackingHash);
   io.to('admins').emit('report:new', { report: publicAdminReport(report) });
   res.status(201).json({
     trackingCode,
@@ -231,20 +166,16 @@ function publicAdminReport(report) {
   };
 }
 
-app.get('/api/reports/track/:code', (req, res) => {
+app.get('/api/reports/track/:code', async (req, res) => {
   const code = typeof req.params.code === 'string' ? req.params.code.trim().toUpperCase() : '';
   if (!/^[A-Z0-9_-]{30,40}$/.test(code)) {
     return res.status(404).json({ error: 'Kode pelacakan tidak ditemukan.' });
   }
-  const report = db.prepare('SELECT id, tracking_hash, status, created_at, updated_at FROM reports WHERE tracking_hash = ?')
-    .get(hashTrackingCode(code));
+  const report = await db.findReportByTrackingHash(hashTrackingCode(code));
   if (!report) {
     return res.status(404).json({ error: 'Kode pelacakan tidak ditemukan.' });
   }
-  const updates = db.prepare(`
-    SELECT status, note, changed_at AS changedAt
-    FROM status_updates WHERE report_id = ? ORDER BY id ASC
-  `).all(report.id);
+  const updates = await db.listStatusUpdates(report.id);
   res.json({
     status: report.status,
     createdAt: report.created_at,
@@ -253,31 +184,25 @@ app.get('/api/reports/track/:code', (req, res) => {
   });
 });
 
-app.get('/api/admin/reports', adminAuth, (req, res) => {
-  const reports = db.prepare('SELECT * FROM reports ORDER BY created_at DESC, id DESC').all();
+app.get('/api/admin/reports', adminAuth, async (req, res) => {
+  const reports = await db.listReports();
   res.json({ reports: reports.map(publicAdminReport) });
 });
 
-app.patch('/api/admin/reports/:id/status', adminAuth, (req, res) => {
+app.patch('/api/admin/reports/:id/status', adminAuth, async (req, res) => {
   const id = Number(req.params.id);
   const status = typeof req.body?.status === 'string' ? req.body.status : '';
   const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
   if (!Number.isSafeInteger(id) || id < 1 || !STATUSES.includes(status) || note.length > 500) {
     return res.status(400).json({ error: 'Status atau catatan tindak lanjut tidak valid.' });
   }
-  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
+  const report = await db.findReportById(id);
   if (!report) {
     return res.status(404).json({ error: 'Laporan tidak ditemukan.' });
   }
 
   const updatedAt = new Date().toISOString();
-  const updateStatus = db.transaction(() => {
-    db.prepare('UPDATE reports SET status = ?, updated_at = ? WHERE id = ?').run(status, updatedAt, id);
-    db.prepare('INSERT INTO status_updates (report_id, status, note, changed_at) VALUES (?, ?, ?, ?)')
-      .run(id, status, note || `Status laporan diperbarui menjadi ${status}.`, updatedAt);
-  });
-  updateStatus();
-  const updatedReport = db.prepare('SELECT * FROM reports WHERE id = ?').get(id);
+  const updatedReport = await db.updateReportStatus(id, status, note, updatedAt);
   const notification = {
     status,
     note: note || `Status laporan diperbarui menjadi ${status}.`,
@@ -296,11 +221,12 @@ io.on('connection', (socket) => {
     socket.join('admins');
   }
 
-  socket.on('report:subscribe', ({ trackingCode } = {}) => {
+  socket.on('report:subscribe', async ({ trackingCode } = {}) => {
     if (typeof trackingCode !== 'string' || !/^[A-Z0-9_-]{30,40}$/i.test(trackingCode.trim())) return;
     const trackingHash = hashTrackingCode(trackingCode.trim().toUpperCase());
-    const report = db.prepare('SELECT id FROM reports WHERE tracking_hash = ?').get(trackingHash);
+    const report = await db.findReportByTrackingHash(trackingHash);
     if (report) socket.join(`report:${trackingHash}`);
+    else socket.emit('report:error', { error: 'Kode pelacakan tidak ditemukan.' });
   });
 });
 
@@ -319,6 +245,32 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-httpServer.listen(PORT, () => {
-  console.info(`Portal K3 berjalan di http://localhost:${PORT}`);
+async function start() {
+  await db.initialize();
+  httpServer.listen(PORT, () => {
+    console.info(`Portal K3 berjalan di http://localhost:${PORT} (database: ${process.env.DATABASE_URL ? 'Supabase PostgreSQL' : 'SQLite lokal'})`);
+  });
+}
+
+start().catch((error) => {
+  console.error('Gagal menginisialisasi aplikasi:', error);
+  db.close()
+    .catch((closeError) => console.error('Gagal menutup koneksi database:', closeError))
+    .finally(() => {
+      process.exitCode = 1;
+    });
 });
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    httpServer.close(async () => {
+      try {
+        await db.close();
+        process.exit(0);
+      } catch (error) {
+        console.error('Gagal menutup koneksi database:', error);
+        process.exit(1);
+      }
+    });
+  });
+}

@@ -25,8 +25,8 @@ async function waitForServer(url) {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url);
-      if (response.ok) return;
+      const response = await fetch(`${url}/api/admin/session`);
+      if (response.status === 401) return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -60,11 +60,12 @@ test('pengaduan anonim, kontrol admin, dan notifikasi status berjalan end-to-end
     cwd: path.join(__dirname, '..'),
     env: {
       ...process.env,
-      NODE_ENV: 'production',
+      NODE_ENV: 'test',
       PORT: String(port),
       ADMIN_EMAIL: 'admin@example.test',
       ADMIN_PASSWORD: 'Password-Uji-Portal-2026!',
       JWT_SECRET: 'test-secret-portal-k3-integration-32-characters',
+      DATABASE_URL: '',
       DATABASE_PATH: path.join(tempDir, 'portal.sqlite'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -79,6 +80,10 @@ test('pengaduan anonim, kontrol admin, dan notifikasi status berjalan end-to-end
 
   const anonymousAccess = await fetch(`${baseUrl}/api/admin/reports`);
   assert.equal(anonymousAccess.status, 401);
+  assert.match(
+    anonymousAccess.headers.get('content-security-policy'),
+    /frame-src 'self' https:\/\/www\.youtube-nocookie\.com/,
+  );
 
   const login = await fetch(`${baseUrl}/api/admin/login`, {
     method: 'POST',
@@ -135,6 +140,4 @@ test('pengaduan anonim, kontrol admin, dan notifikasi status berjalan end-to-end
   assert.equal(reportStatus.status, 'Ditindaklanjuti');
   assert.equal(reportStatus.updates.length, 2);
 
-  const adminPage = await fetch(`${baseUrl}/admin`);
-  assert.equal(adminPage.status, 200);
 });

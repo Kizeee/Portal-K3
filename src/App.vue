@@ -96,6 +96,64 @@ const articles = [
   },
 ];
 
+const videos = [
+  { id: 'RJPAgp8m2AM', title: 'Video 1 — Bahaya', description: 'Kenali potensi bahaya di sekitar kita.' },
+  { id: 'B0uM_zhlr-Q', title: 'Video 2 — APAR', description: 'Pelajari informasi penggunaan alat pemadam api.' },
+  { id: '_ie6JL0MDhQ', title: 'Video 3', description: 'Materi edukasi keselamatan dan kesehatan kerja.' },
+  { id: 'RGFhtjXwizc', title: 'Video 4 — SafeMate', description: 'Mengenal SafeMate dan penggunaannya.' },
+];
+
+const evacuationFloors = [
+  {
+    name: 'Lantai 1',
+    image: '/evacuation/lantai-1.png',
+    pdf: '/evacuation/lantai-1.pdf',
+    rooms: [
+      'R. Hasan Junus',
+      'R. Abdurrahman Sidik',
+      'R. Aisyah Sulaiman',
+      'R. Tenas Efendi',
+      'R. Sariamin Ismail',
+      'R. BPM',
+      'R. Bank Riau Kepri',
+      'R. Lobby',
+      'R. Lab. Bahasa B',
+      'R. Lab. Bahasa A',
+      'R. Balai Bahasa',
+      'R. Pelayanan dan Administrasi',
+      'R. Raja Ali Haji',
+      'R. Idrus Titin',
+      'R. Soeman HS',
+      'ATM Gallery',
+    ],
+  },
+  {
+    name: 'Lantai 2',
+    image: '/evacuation/lantai-2.png',
+    pdf: '/evacuation/lantai-2.pdf',
+    rooms: [
+      'Gudang',
+      'R. Edi Ruskan',
+      'R. SPI/pendaftaran Mahasiswa Baru',
+      'R. BAAK',
+      'R. Wakil Rektor II',
+      'R. Bagian Umum',
+      'R. Kepala Biro Administrasi Umum',
+      'R. Bag. Keuangan',
+      'R. Humas',
+      'Kantor Urusan Internasional dan Kerjasama',
+      'R. Pend. Ilmu Perpustakaan',
+      'R. Tata Usaha Pend. Sastra Inggris',
+      'Fakultas Ilmu Budaya/ Pend. Sastra Daerah Melayu',
+      'R. Administrasi',
+      'R. Dekan',
+      'R. Seminar',
+      'Lab. Komputer FIB',
+      'Gudang',
+    ],
+  },
+];
+
 const reportForm = ref({
   reporter: '',
   category: '',
@@ -114,6 +172,10 @@ const trackingError = ref('');
 const searchQuery = ref('');
 const articleFilter = ref('Semua kategori');
 const selectedArticle = ref(null);
+const menuOpen = ref(false);
+const selectedFloor = ref(0);
+const roomQuery = ref('');
+const planPreviewOpen = ref(false);
 const notification = ref('');
 const loginForm = ref({ email: '', password: '' });
 const loginError = ref('');
@@ -136,6 +198,14 @@ const filteredArticles = computed(() => articles.filter((article) => {
   const matchesSearch = !search || `${article.title} ${article.description} ${article.keywords}`.toLowerCase().includes(search);
   return matchesCategory && matchesSearch;
 }));
+
+const activeEvacuationFloor = computed(() => evacuationFloors[selectedFloor.value]);
+const filteredRooms = computed(() => {
+  const query = roomQuery.value.trim().toLowerCase();
+  return activeEvacuationFloor.value.rooms
+    .map((name, index) => ({ name, number: index + 1 }))
+    .filter((room) => !query || room.name.toLowerCase().includes(query));
+});
 
 const filteredReports = computed(() => reports.value.filter((report) => {
   const matchesStatus = reportFilter.value === 'Semua status' || report.status === reportFilter.value;
@@ -175,7 +245,7 @@ async function request(url, options = {}) {
   if (response.status === 204) return null;
   const result = await response.json();
   if (!response.ok) {
-    const error = new Error(result.error || 'Permintaan tidak berhasil.');
+    const error = new Error(result.error || 'permintaan tidak berhasil!');
     error.status = response.status;
     throw error;
   }
@@ -452,20 +522,72 @@ onBeforeUnmount(() => {
   </div>
 
   <div v-else>
-    <div class="topline"><div class="wrap">Portal edukasi dan pelaporan Keselamatan dan Kesehatan Kerja (K3) kampus</div></div>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="safemate-k3-logo" viewBox="180 112 440 446">
+        <g fill="none" stroke="#3C9A47" stroke-width="8" stroke-linecap="round">
+          <path d="M205 330 q-18 20 0 40" />
+          <path d="M188 316 q-32 34 0 68" />
+          <path d="M595 330 q18 20 0 40" />
+          <path d="M612 316 q32 34 0 68" />
+        </g>
+        <path d="M250 255 Q330 250 400 215 Q470 250 550 255 L550 380 Q550 470 400 550 Q250 470 250 380 Z" fill="#FFFFFF" />
+        <path d="M400 215 Q330 250 250 255 L250 380 Q250 470 400 550" fill="none" stroke="#1B3A6B" stroke-width="14" stroke-linejoin="round" stroke-linecap="round" />
+        <path d="M400 215 Q470 250 550 255 L550 380 Q550 470 400 550" fill="none" stroke="#3C9A47" stroke-width="14" stroke-linejoin="round" stroke-linecap="round" />
+        <path d="M375 304 v-18 q0-10 10-10 h30 q10 0 10 10 v18" fill="none" stroke="#1B3A6B" stroke-width="8" />
+        <rect x="322" y="400" width="14" height="50" rx="7" fill="#1B3A6B" />
+        <rect x="464" y="400" width="14" height="50" rx="7" fill="#1B3A6B" />
+        <rect x="335" y="300" width="130" height="175" rx="45" fill="#1B3A6B" />
+        <circle cx="400" cy="336" r="14" fill="#3C9A47" />
+        <path d="M400 328 v16 M392 336 h16" stroke="#fff" stroke-width="5" stroke-linecap="round" />
+        <rect x="352" y="370" width="96" height="92" rx="16" fill="#FFFFFF" />
+        <g fill="none" stroke="#1B3A6B" stroke-width="3">
+          <rect x="367" y="381" width="18" height="18" />
+          <rect x="415" y="381" width="18" height="18" />
+          <rect x="367" y="433" width="18" height="18" />
+        </g>
+        <g fill="#1B3A6B">
+          <rect x="372" y="386" width="8" height="8" />
+          <rect x="420" y="386" width="8" height="8" />
+          <rect x="372" y="438" width="8" height="8" />
+          <rect x="392" y="383" width="5" height="5" />
+          <rect x="402" y="388" width="5" height="5" />
+          <rect x="392" y="395" width="5" height="5" />
+          <rect x="368" y="408" width="5" height="5" />
+          <rect x="378" y="412" width="5" height="5" />
+          <rect x="418" y="408" width="5" height="5" />
+          <rect x="428" y="414" width="5" height="5" />
+          <rect x="392" y="440" width="5" height="5" />
+          <rect x="414" y="436" width="5" height="5" />
+          <rect x="426" y="444" width="5" height="5" />
+          <rect x="404" y="448" width="5" height="5" />
+        </g>
+        <rect x="389" y="410" width="22" height="17" rx="3" fill="#F9B810" />
+        <text x="400" y="423" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="11" fill="#1B3A6B">K3</text>
+        <path d="M335 190 v36 q65 32 130 0 v-36 z" fill="#E0A000" />
+        <polygon points="400,120 530,172 400,224 270,172" fill="#F9B810" />
+        <path d="M520 176 v52" stroke="#E0A000" stroke-width="5" stroke-linecap="round" />
+        <rect x="512" y="224" width="16" height="22" rx="5" fill="#F9B810" />
+      </symbol>
+    </svg>
+    <div class="topline"><div class="wrap"><span>UNIVERSITAS LANCANG KUNING · PORTAL EDUKASI K3</span><span>Kenali Bahaya · Cegah Risiko · Jaga Sesama</span></div></div>
     <header class="sitehead">
       <div class="wrap nav">
         <a class="brand" href="#beranda">
-          <span class="logo">✚</span>
-          <span>Portal K3<small>UNIVERSITAS LANCANG KUNING</small></span>
+          <svg class="site-logo" aria-hidden="true"><use href="#safemate-k3-logo" /></svg>
+          <span>PORTAL K3<small>UNIVERSITAS LANCANG KUNING</small></span>
         </a>
-        <nav class="navlinks" aria-label="Navigasi utama">
-          <a href="#tentang">Informasi K3</a>
-          <a href="#lapor">Pelaporan</a>
-          <a href="#pelacakan">Lacak status</a>
-          <a href="#evakuasi">Evakuasi</a>
-          <a href="#edukasi">Artikel</a>
+        <button class="menu" type="button" aria-controls="primary-nav" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+          {{ menuOpen ? '✕ Tutup' : '☰ Menu' }}
+        </button>
+        <nav id="primary-nav" class="navlinks" :class="{ open: menuOpen }" aria-label="Navigasi utama">
+          <a href="#video" @click="menuOpen = false">Video</a>
+          <a href="#tentang" @click="menuOpen = false">Informasi K3</a>
+          <a href="#lapor" @click="menuOpen = false">Pelaporan</a>
+          <a href="#pelacakan" @click="menuOpen = false">Lacak status</a>
+          <a href="#evakuasi" @click="menuOpen = false">Peta evakuasi</a>
+          <a href="#edukasi" @click="menuOpen = false">Artikel</a>
           <a class="admin-link" href="/admin">Login admin</a>
+          <a class="navbtn" href="#lapor" @click="menuOpen = false">＋ Lapor Bahaya</a>
         </nav>
       </div>
     </header>
@@ -475,14 +597,14 @@ onBeforeUnmount(() => {
           <div>
             <span class="eyebrow">● BUDAYA AMAN DIMULAI DARI KITA</span>
             <h1>Kampus aman,<br /><span>belajar nyaman.</span></h1>
-            <p>Portal informasi Keselamatan dan Kesehatan Kerja (K3) Universitas Lancang Kuning. Kenali potensi bahaya, pelajari panduan keselamatan, dan laporkan kejadian tanpa perlu membuat akun.</p>
+            <p>Portal informasi Keselamatan dan Kesehatan Kerja (K3) Universitas Lancang Kuning. Temukan panduan keselamatan, kenali potensi bahaya, dan ikut membangun lingkungan belajar yang sehat serta selamat.</p>
             <div class="actions">
               <a class="btn primary" href="#tentang">Jelajahi Informasi K3 ↗</a>
               <a class="btn outline" href="#lapor">Laporkan Bahaya</a>
             </div>
           </div>
-          <div class="hero-art" aria-label="Ilustrasi simbol keselamatan">
-            <div class="shield">✚</div>
+          <div class="hero-art" aria-label="Logo SAFEMATE K3 dan pesan keselamatan">
+            <div class="herologo"><svg aria-hidden="true"><use href="#safemate-k3-logo" /></svg></div>
             <div class="float float-a">🛡️ Utamakan keselamatan<small>Safety first, every day</small></div>
             <div class="float float-b">✓ Kenali · Cegah · Laporkan<small>Semua warga kampus berperan</small></div>
           </div>
@@ -497,6 +619,35 @@ onBeforeUnmount(() => {
           <a class="quickcard" href="#rujukan"><span class="quickicon">⚖️</span><span><strong>Rujukan</strong><small>Regulasi dan sumber</small></span></a>
         </div>
       </div>
+
+      <section id="video" class="video-section">
+        <div class="wrap">
+          <div class="sectionhead">
+            <span class="kicker">Video singkat</span>
+            <h2>Belajar K3 lewat video singkat.</h2>
+            <p>Tonton materi tentang bahaya, APAR, keselamatan, dan SafeMate.</p>
+          </div>
+          <div class="video-grid">
+            <article v-for="video in videos" :key="video.id" class="video-card">
+              <div class="video-frame">
+                <iframe
+                  :src="`https://www.youtube-nocookie.com/embed/${video.id}`"
+                  :title="video.title"
+                  loading="lazy"
+                  referrerpolicy="strict-origin-when-cross-origin"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowfullscreen
+                ></iframe>
+              </div>
+              <div class="video-copy">
+                <h3>{{ video.title }}</h3>
+                <p>{{ video.description }}</p>
+                <a :href="`https://youtu.be/${video.id}`" target="_blank" rel="noopener noreferrer">Tonton di YouTube ↗</a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
 
       <section id="tentang">
         <div class="wrap">
@@ -607,35 +758,64 @@ onBeforeUnmount(() => {
 
       <section id="evakuasi">
         <div class="wrap">
-          <div class="sectionhead"><span class="kicker">Kesiapsiagaan darurat</span><h2>Kenali jalur evakuasi sebelum dibutuhkan.</h2><p>Ikuti rambu dan arahan petugas di gedung tempat Anda berada.</p></div>
+          <div class="sectionhead"><span class="kicker">Kesiapsiagaan darurat</span><h2>Denah dan jalur evakuasi Gedung Rektorat.</h2><p>Pelajari jalur evakuasi, letak APAR, kotak P3K, pintu keluar, dan daftar ruangan di setiap lantai sebelum keadaan darurat terjadi.</p></div>
           <div class="map-layout">
             <div class="mapbox">
-              <div class="maptitle"><h3>Ilustrasi skematis area kampus</h3><p>Visual edukasi, bukan denah resmi Universitas Lancang Kuning.</p></div>
-              <div class="schematic">
-                <svg viewBox="0 0 620 390" role="img" aria-label="Ilustrasi peta skematis, bukan peta lokasi aktual">
-                  <rect width="620" height="390" rx="14" fill="#eef5ec" />
-                  <path d="M25 190 H595 M310 20 V365" stroke="#d1dbe2" stroke-width="43" fill="none" />
-                  <path d="M25 190 H595 M310 20 V365" stroke="#fff" stroke-width="3" stroke-dasharray="12 10" fill="none" />
-                  <rect x="48" y="38" width="190" height="105" rx="9" fill="#d7eafa" stroke="#5b94be" stroke-width="2" />
-                  <text x="143" y="88" text-anchor="middle" fill="#153e5d">GEDUNG PERKULIAHAN</text>
-                  <rect x="375" y="38" width="195" height="105" rx="9" fill="#ffe7ae" stroke="#c89d35" stroke-width="2" />
-                  <text x="472" y="88" text-anchor="middle" fill="#624a0d">LABORATORIUM</text>
-                  <rect x="48" y="240" width="190" height="105" rx="9" fill="#e4def7" stroke="#9380c2" stroke-width="2" />
-                  <text x="143" y="294" text-anchor="middle" fill="#413469">PERPUSTAKAAN</text>
-                  <rect x="375" y="240" width="195" height="105" rx="9" fill="#d8eee3" stroke="#5c9d7d" stroke-width="2" />
-                  <text x="472" y="294" text-anchor="middle" fill="#18583e">AREA TERBUKA</text>
-                  <path d="M240 95 H270 V190 H355 V290 H420" fill="none" stroke="#16805d" stroke-width="5" stroke-dasharray="8 6" />
-                  <circle cx="420" cy="290" r="18" fill="#16805d" stroke="#fff" stroke-width="4" />
-                  <text x="420" y="295" text-anchor="middle" fill="#fff">K</text>
-                </svg>
+              <div class="tabs" aria-label="Pilih lantai">
+                <button
+                  v-for="(floor, index) in evacuationFloors"
+                  :key="floor.name"
+                  class="tab"
+                  type="button"
+                  :aria-pressed="selectedFloor === index"
+                  @click="selectedFloor = index"
+                >
+                  {{ floor.name }}
+                </button>
               </div>
-              <div class="maplegend">● Titik kumpul &nbsp; ● Bangunan ilustratif &nbsp; ● Rute contoh</div>
+              <div class="maptitle">
+                <h3>Denah evakuasi {{ activeEvacuationFloor.name }} · Gedung Rektorat</h3>
+                <p>Klik denah untuk memperbesar.</p>
+              </div>
+              <div class="schematic">
+                <button class="plan-trigger" type="button" :aria-label="`Perbesar denah ${activeEvacuationFloor.name}`" @click="planPreviewOpen = true">
+                  <img
+                    class="plan"
+                    :src="activeEvacuationFloor.image"
+                    :alt="`Denah dan jalur evakuasi ${activeEvacuationFloor.name} Gedung Rektorat Universitas Lancang Kuning`"
+                  />
+                </button>
+              </div>
+              <div class="planact">
+                <a
+                  class="btn lightbtn"
+                  :href="activeEvacuationFloor.pdf"
+                  :download="`Denah-Evakuasi-Rektorat-${activeEvacuationFloor.name.replace(' ', '-')}.pdf`"
+                >
+                  Unduh PDF ↓
+                </a>
+              </div>
             </div>
             <div class="mapnotes">
-              <article class="mapnote"><h3>🚪 Saat alarm berbunyi</h3><p>Hentikan aktivitas, tetap tenang, ikuti rambu dan instruksi petugas. Jangan gunakan lift saat kebakaran.</p></article>
+              <article class="mapnote"><h3>🚪 Saat alarm berbunyi</h3><p>Hentikan aktivitas, tetap tenang, ikuti rambu dan instruksi petugas, serta gunakan tangga darurat jika tersedia. Jangan menggunakan lift saat kebakaran.</p></article>
               <article class="mapnote"><h3>📍 Di titik kumpul</h3><p>Menjauh dari bangunan dan akses kendaraan darurat. Ikuti pendataan petugas dan jangan kembali sebelum dinyatakan aman.</p></article>
-              <article class="warning"><strong>Penting:</strong> Ganti skema ini dengan denah resmi tiap gedung yang telah diverifikasi sebelum dipakai sebagai panduan operasional.</article>
+              <article class="mapnote"><h3>🧯 Jika terjadi kebakaran</h3><p>Aktifkan alarm atau beri peringatan jika aman, lalu segera evakuasi. APAR hanya digunakan oleh orang terlatih apabila api masih kecil dan jalur keluar tetap aman.</p></article>
+              <div class="warning"><strong>Penting:</strong> Denah bersumber dari berkas Denah dan Jalur Evakuasi Gedung Rektorat Universitas Lancang Kuning (revisi 1). Tetap ikuti rambu terpasang dan arahan petugas di lokasi.</div>
             </div>
+          </div>
+          <div class="panel dir">
+            <h3>Daftar ruangan</h3>
+            <p class="sub">{{ activeEvacuationFloor.name }} · {{ activeEvacuationFloor.rooms.length }} ruangan</p>
+            <label class="field room-search">
+              <span class="visually-hidden">Cari ruangan</span>
+              <input v-model="roomQuery" type="search" placeholder="Cari ruangan..." aria-label="Cari ruangan" />
+            </label>
+            <div v-if="filteredRooms.length" class="roomgrid">
+              <div v-for="room in filteredRooms" :key="`${room.number}-${room.name}`" class="room">
+                <b>{{ room.number }}</b><span>{{ room.name }}</span>
+              </div>
+            </div>
+            <p v-else class="empty">Ruangan tidak ditemukan.</p>
           </div>
         </div>
       </section>
@@ -672,6 +852,13 @@ onBeforeUnmount(() => {
     <footer><div class="wrap foot"><div><strong>PORTAL K3 · UNIVERSITAS LANCANG KUNING</strong><p>Bangun budaya aman, sehat, dan peduli di lingkungan akademik.</p><small>Prototipe edukasi · Perlu validasi pengelola kampus untuk penggunaan resmi.</small></div><div class="right"><small>© {{ new Date().getFullYear() }} Portal K3 Kampus</small><br /><small><a href="#beranda">Kembali ke atas ↑</a></small></div></div></footer>
     <div v-if="selectedArticle" class="modal" role="dialog" aria-modal="true" :aria-label="selectedArticle.title" @click.self="selectedArticle = null" @keydown.esc="selectedArticle = null">
       <div class="modalbox"><button class="close" type="button" aria-label="Tutup" @click="selectedArticle = null">✕</button><span class="kicker">{{ selectedArticle.category }}</span><h2>{{ selectedArticle.title }}</h2><ul><li v-for="detail in selectedArticle.details" :key="detail">{{ detail }}</li></ul></div>
+    </div>
+    <div v-if="planPreviewOpen" class="modal" role="dialog" aria-modal="true" aria-label="Perbesar denah evakuasi" tabindex="-1" @click.self="planPreviewOpen = false" @keydown.esc="planPreviewOpen = false">
+      <div class="modalbox wide">
+        <button class="close" type="button" aria-label="Tutup denah" @click="planPreviewOpen = false">✕</button>
+        <h2>Denah evakuasi {{ activeEvacuationFloor.name }} · Gedung Rektorat</h2>
+        <div class="plan-large-wrap"><img class="plan-large" :src="activeEvacuationFloor.image" :alt="`Denah evakuasi ${activeEvacuationFloor.name}`" /></div>
+      </div>
     </div>
     <div v-if="notification" class="toast" role="status" aria-live="polite">{{ notification }}</div>
   </div>
