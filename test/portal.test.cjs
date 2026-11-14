@@ -15,6 +15,18 @@ let realtimeProcess;
 let realtimeServer;
 let baseUrl;
 
+function dateInJakarta(daysFromToday = 0) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date()).map(({ type, value }) => [type, value]));
+  const date = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + daysFromToday);
+  return date.toISOString().slice(0, 10);
+}
+
 async function findFreePort() {
   const server = net.createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
@@ -104,7 +116,7 @@ test('pengaduan anonim, kontrol admin, dan pelacakan status berjalan end-to-end'
     body: JSON.stringify({
       reporter: '',
       category: 'Kondisi tidak aman',
-      incidentDate: new Date().toISOString().slice(0, 10),
+      incidentDate: dateInJakarta(),
       location: 'Gedung Uji Lantai 1',
       description: 'Lampu koridor berkedip dan kabel terbuka.',
       initialAction: '',
@@ -113,6 +125,21 @@ test('pengaduan anonim, kontrol admin, dan pelacakan status berjalan end-to-end'
   assert.equal(submission.status, 201);
   const created = await submission.json();
   assert.equal(created.realtimeNotified, false);
+
+  const futureReport = await fetch(`${baseUrl}/api/reports`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      reporter: '',
+      category: 'Kondisi tidak aman',
+      incidentDate: dateInJakarta(1),
+      location: 'Gedung Uji Lantai 1',
+      description: 'Lampu koridor berkedip dan kabel terbuka.',
+      initialAction: '',
+    }),
+  });
+  assert.equal(futureReport.status, 400);
+  assert.equal((await futureReport.json()).error, 'Tanggal kejadian tidak valid.');
 
   const tracking = await fetch(`${baseUrl}/api/reports/track/${created.trackingCode}`);
   assert.equal(tracking.status, 200);
@@ -227,7 +254,7 @@ test('broadcast Supabase hanya mengirim sinyal tanpa isi laporan', async () => {
     body: JSON.stringify({
       reporter: 'Pelapor uji',
       category: 'Kondisi tidak aman',
-      incidentDate: new Date().toISOString().slice(0, 10),
+      incidentDate: dateInJakarta(),
       location: 'Lokasi rahasia uji',
       description: 'Keterangan sensitif tidak boleh ikut terkirim.',
       initialAction: 'Tindakan awal rahasia.',

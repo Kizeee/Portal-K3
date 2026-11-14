@@ -5,6 +5,7 @@ Aplikasi Portal K3 menggunakan Vue, API Express, Supabase PostgreSQL, dashboard 
 ## Fitur
 
 - Formulir pengaduan publik tanpa akun/login.
+- Tanggal kejadian dan batas tanggal memakai zona waktu kampus Asia/Jakarta.
 - Kode pelacakan acak yang diberikan setelah pengaduan berhasil disimpan. Kode diperlukan untuk melihat status dan sebaiknya disimpan oleh pelapor.
 - Dashboard admin untuk mencari laporan, memfilter status, dan mencatat tindak lanjut.
 - Riwayat dan perubahan status tersimpan di Supabase PostgreSQL ketika `DATABASE_URL` dikonfigurasi.

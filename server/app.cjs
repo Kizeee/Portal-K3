@@ -14,6 +14,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
 }
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const COOKIE_NAME = 'portal_k3_admin';
+const APP_TIME_ZONE = 'Asia/Jakarta';
 const STATUSES = ['Baru', 'Ditinjau', 'Ditindaklanjuti', 'Selesai'];
 const CATEGORIES = [
   'Kondisi tidak aman',
@@ -53,6 +54,16 @@ app.use((req, res, next) => {
 
 function hashTrackingCode(code) {
   return crypto.createHash('sha256').update(code).digest('hex');
+}
+
+function dateInAppTimeZone(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date).map(({ type, value }) => [type, value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function getAdminFromToken(token) {
@@ -167,13 +178,14 @@ app.post('/api/reports', reportLimiter, async (req, res) => {
     initialAction: typeof body.initialAction === 'string' ? body.initialAction.trim() : '',
   };
   const incidentDate = new Date(`${values.incidentDate}T00:00:00Z`);
-  const today = new Date();
-  today.setUTCHours(23, 59, 59, 999);
+  const validIncidentDate = /^\d{4}-\d{2}-\d{2}$/.test(values.incidentDate) &&
+    !Number.isNaN(incidentDate.getTime()) &&
+    incidentDate.toISOString().slice(0, 10) === values.incidentDate;
 
   if (!CATEGORIES.includes(values.category)) {
     return res.status(400).json({ error: 'Pilih kategori laporan yang tersedia.' });
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.incidentDate) || Number.isNaN(incidentDate.getTime()) || incidentDate > today) {
+  if (!validIncidentDate || values.incidentDate > dateInAppTimeZone(new Date())) {
     return res.status(400).json({ error: 'Tanggal kejadian tidak valid.' });
   }
   if (values.reporter.length > 100 || values.location.length < 3 || values.location.length > 180 ||
