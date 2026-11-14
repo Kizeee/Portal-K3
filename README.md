@@ -68,7 +68,7 @@ Vercel menjalankan API Express sebagai Function; tidak diperlukan server yang be
 3. Pastikan Realtime aktif dan akses kanal publik diizinkan pada proyek Supabase, lalu deploy ulang setelah semua variabel diatur. Variabel `VITE_*` dibaca saat proses build.
 4. Uji halaman `/`, `/admin`, login admin, pengiriman laporan, pelacakan kode, dan perubahan status.
 
-Kanal Realtime `portal-updates` bersifat publik dan hanya membawa event kosong `reports_changed`—tidak membawa isi, identitas, kode pelacakan, atau status laporan. Namun, pihak luar dapat melihat waktu terjadinya pembaruan. Data laporan hanya dikirim melalui API yang dilindungi. Halaman admin dan pelacakan juga memeriksa pembaruan setiap 30 detik untuk mengantisipasi sinyal yang terlewat.
+Kanal Realtime `portal-updates` bersifat publik dan hanya membawa event kosong `reports_changed`—tidak membawa isi, identitas, kode pelacakan, atau status laporan. Namun, pihak luar dapat melihat waktu terjadinya pembaruan. Data laporan hanya dikirim melalui API yang dilindungi. Halaman admin dan pelacakan juga memeriksa pembaruan setiap 15 detik untuk mengantisipasi sinyal yang terlewat; notifikasi perubahan tetap muncul bila pembaruan diketahui melalui polling.
 
 Untuk menjalankan server Express biasa, gunakan `npm start`; server tersebut tetap melayani `dist` pada production. Gunakan HTTPS dan lakukan backup database sesuai kebutuhan.
 

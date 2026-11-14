@@ -277,12 +277,15 @@ function refreshVisibleReports() {
 
 function startPolling() {
   if (pollingTimer) return;
-  pollingTimer = setInterval(refreshVisibleReports, 30000);
+  pollingTimer = setInterval(refreshVisibleReports, 15000);
 }
 
 function connectRealtime() {
   startPolling();
   if (!realtimeClient) {
+    if (isAdminPage) {
+      showNotification('Realtime belum dikonfigurasi. Perubahan akan diperiksa otomatis setiap 15 detik.');
+    }
     return;
   }
 
@@ -290,12 +293,12 @@ function connectRealtime() {
     .channel('portal-updates')
     .on('broadcast', { event: 'reports_changed' }, () => {
       refreshVisibleReports();
-      if (isAdminPage && adminEmail.value) showNotification('Ada pembaruan laporan.');
     })
-    .subscribe((status) => {
-    if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+    .subscribe((status, error) => {
+      if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+        console.error('Koneksi Supabase Realtime gagal:', error || status);
         if (isAdminPage && adminEmail.value) {
-          showNotification('Koneksi real-time terputus. Data diperbarui secara berkala.');
+          showNotification('Koneksi real-time terputus. Data diperiksa otomatis setiap 15 detik.');
         }
       }
     });
@@ -338,6 +341,9 @@ async function trackReport() {
     const result = await request(`/api/reports/track/${encodeURIComponent(code)}`);
     trackedCode.value = code;
     trackedReport.value = result;
+    if (!realtimeClient) {
+      showNotification('Realtime belum dikonfigurasi. Status akan diperiksa otomatis setiap 15 detik.');
+    }
   } catch (error) {
     trackedCode.value = '';
     trackedReport.value = null;
@@ -407,6 +413,12 @@ async function loadReports(preserveEdits = false) {
     const result = await request('/api/admin/reports');
     const previousReports = reports.value;
     const previousEdits = reportEdits.value;
+    const newReportCount = result.reports.filter((report) =>
+      !previousReports.some((previousReport) => previousReport.id === report.id)).length;
+    const changedStatusCount = result.reports.filter((report) => {
+      const previousReport = previousReports.find((item) => item.id === report.id);
+      return previousReport && previousReport.status !== report.status;
+    }).length;
     reports.value = result.reports;
     reportEdits.value = Object.fromEntries(result.reports.map((report) => {
       const previousReport = previousReports.find((item) => item.id === report.id);
@@ -421,6 +433,11 @@ async function loadReports(preserveEdits = false) {
         },
       ];
     }));
+    if (preserveEdits && newReportCount > 0) {
+      showNotification(`${newReportCount} laporan baru diterima.`);
+    } else if (preserveEdits && changedStatusCount > 0) {
+      showNotification('Status laporan diperbarui.');
+    }
   } catch (error) {
     adminError.value = error.message;
   }
