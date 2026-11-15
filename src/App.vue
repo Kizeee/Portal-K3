@@ -101,10 +101,10 @@ const articles = [
 ];
 
 const videos = [
-  { id: 'RJPAgp8m2AM', title: 'Video 1 — Bahaya', description: 'Kenali potensi bahaya di sekitar kita.' },
-  { id: 'B0uM_zhlr-Q', title: 'Video 2 — APAR', description: 'Pelajari informasi penggunaan alat pemadam api.' },
-  { id: '_ie6JL0MDhQ', title: 'Video 3', description: 'Materi edukasi keselamatan dan kesehatan kerja.' },
-  { id: 'RGFhtjXwizc', title: 'Video 4 — SafeMate', description: 'Mengenal SafeMate dan penggunaannya.' },
+  { id: 'RJPAgp8m2AM', title: '4 Bahaya di Sekitar Kita yang Sering Diabaikan | Edukasi K3', description: 'Kenali potensi bahaya di sekitar kita.' },
+  { id: '0rGvhaeSFJY', title: 'Cara Menggunakan APAR dengan Benar: TARIK, ARAHKAN, TEKAN, SAPU | Edukasi K3', description: 'Pelajari informasi penggunaan alat pemadam api.' },
+  { id: '_ie6JL0MDhQ', title: 'Apa yang Harus Dilakukan Saat dan Setelah Gempa? Tenang, Lindungi Kepala, Selamatkan Diri|Edukasi K3', description: 'Materi edukasi keselamatan dan kesehatan kerja.' },
+  { id: 'RGFhtjXwizc', title: 'SAFEMATE -always safe, always ready!', description: 'Mengenal SafeMate dan penggunaannya.' },
 ];
 
 const evacuationFloors = [
@@ -847,7 +847,7 @@ onBeforeUnmount(() => {
               <article class="mapnote"><h3>🚪 Saat alarm berbunyi</h3><p>Hentikan aktivitas, tetap tenang, ikuti rambu dan instruksi petugas, serta gunakan tangga darurat jika tersedia. Jangan menggunakan lift saat kebakaran.</p></article>
               <article class="mapnote"><h3>📍 Di titik kumpul</h3><p>Menjauh dari bangunan dan akses kendaraan darurat. Ikuti pendataan petugas dan jangan kembali sebelum dinyatakan aman.</p></article>
               <article class="mapnote"><h3>🧯 Jika terjadi kebakaran</h3><p>Aktifkan alarm atau beri peringatan jika aman, lalu segera evakuasi. APAR hanya digunakan oleh orang terlatih apabila api masih kecil dan jalur keluar tetap aman.</p></article>
-              <div class="warning"><strong>Penting:</strong> Denah bersumber dari berkas Denah dan Jalur Evakuasi Gedung Rektorat Universitas Lancang Kuning (revisi 1). Tetap ikuti rambu terpasang dan arahan petugas di lokasi.</div>
+              <div class="warning"><strong>Penting:</strong> Denah bersumber dari berkas Denah dan Jalur Evakuasi Gedung Rektorat Universitas Lancang Kuning. Tetap ikuti rambu terpasang dan arahan petugas di lokasi.</div>
             </div>
           </div>
           <div class="panel dir">
