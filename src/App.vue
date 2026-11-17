@@ -101,6 +101,7 @@ const articles = [
 ];
 
 const videos = [
+  { id: 'xFDiuIccymc', title: 'SAFETY INDUCTION DI GEDUNG REKTORAT', description: 'Pengenalan keselamatan di Gedung Rektorat.' },
   { id: 'RJPAgp8m2AM', title: '4 Bahaya di Sekitar Kita yang Sering Diabaikan | Edukasi K3', description: 'Kenali potensi bahaya di sekitar kita.' },
   { id: '0rGvhaeSFJY', title: 'Cara Menggunakan APAR dengan Benar: TARIK, ARAHKAN, TEKAN, SAPU | Edukasi K3', description: 'Pelajari informasi penggunaan alat pemadam api.' },
   { id: '_ie6JL0MDhQ', title: 'Apa yang Harus Dilakukan Saat dan Setelah Gempa? Tenang, Lindungi Kepala, Selamatkan Diri|Edukasi K3', description: 'Materi edukasi keselamatan dan kesehatan kerja.' },

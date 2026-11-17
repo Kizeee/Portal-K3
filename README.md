@@ -12,7 +12,7 @@ Aplikasi Portal K3 menggunakan Vue, API Express, Supabase PostgreSQL, dashboard 
 - Supabase Realtime mengirim sinyal pembaruan tanpa isi laporan; data tetap dimuat melalui API yang dilindungi autentikasi admin atau kode pelacakan.
 - Jika Realtime belum tersedia, halaman admin dan pelacakan beralih ke pemeriksaan berkala.
 - Login admin menggunakan cookie HttpOnly dan batas percobaan masuk.
-- Empat video K3 dari YouTube serta denah evakuasi Gedung Rektorat per lantai dengan PDF dan pencarian ruangan.
+- Lima video K3 dari YouTube serta denah evakuasi Gedung Rektorat per lantai dengan PDF dan pencarian ruangan.
 
 ## Persiapan
 
